@@ -8,6 +8,14 @@ from main_pipeline.input_processor import InputProcessor
 
 load_dotenv()
 
+def _format_graph_url(url_template: str, host: str, port: int, graph: str) -> str:
+    if not url_template:
+        return ""
+    try:
+        return url_template.format(host=host, port=port, graph=graph)
+    except Exception:
+        return url_template
+
 class AsyncDspyRedis:
     def __init__(self):
         REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
@@ -27,7 +35,13 @@ class AsyncDspyRedis:
             FALKORDB_HOST = os.getenv("FALKORDB_HOST", "localhost")
             FALKORDB_PORT = int(os.getenv("FALKORDB_PORT", 6379))
             FALKORDB_GRAPH = os.getenv("FALKORDB_GRAPH", "KnowledgeGraph")
+            FALKORDB_BROWSER_URL = os.getenv("FALKORDB_BROWSER_URL", "")
             self.falkordb_client = FalkorDBClient(FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
+            self.graph_url = _format_graph_url(FALKORDB_BROWSER_URL, FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
+            if self.graph_url:
+                print(f"🔗 Graph browser: {self.graph_url}")
+        else:
+            self.graph_url = ""
         
         # Input processor configuration
         INPUT_DIR = os.getenv("INPUT_DIR", "input")
@@ -79,6 +93,8 @@ class AsyncDspyRedis:
                 results = self.falkordb_client.execute_queries(queries)
                 success_count = sum(1 for r in results if r.get("success"))
                 print(f"✓ {success_count}/{len(queries)} queries executed successfully")
+                if self.graph_url:
+                    print(f"🔗 View graph: {self.graph_url}")
             except Exception as e:
                 print(f"Error executing FalkorDB queries: {e}")
         

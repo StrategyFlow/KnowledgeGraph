@@ -41,6 +41,18 @@ uv run pipeline
 - Open local pub/sub test client: `uv run publisher`
 - Load extracted JSON into FalkorDB: `uv run load-graph`
 
+## Which mode should I use?
+
+| Need | Use | Why |
+|---|---|---|
+| Process files dropped into a folder, then exit | `uv run pipeline` | Simple batch workflow for local runs, cron jobs, or CI tasks |
+| Keep a long-running endpoint your app can send text to | `uv run service` | Runs continuously and processes Redis messages in real time |
+| Manually test Redis requests/responses from terminal | `uv run publisher` | Lightweight interactive test client for service mode |
+
+Most users only need **one** mode:
+- Use **pipeline mode** for file-based workflows.
+- Use **service mode** for product integrations that already use Redis messaging.
+
 ## Environment variables
 
 Start with `example.env`, then adjust as needed:
@@ -71,7 +83,13 @@ WATCH_INPUT_FILES=false
 Notes:
 - `INPUT_DIR` defaults to repo-root `input/`.
 - `AUTO_LOAD_FALKORDB` only affects Redis service mode.
+- `USE_FALKORDB=true` makes `uv run pipeline` automatically load generated queries into FalkorDB.
 - The pipeline tracks previously processed files with `input/.processed`.
+
+Optional link output:
+- Set `FALKORDB_BROWSER_URL` to print a clickable graph link in terminal output after successful loads.
+- Supported placeholders: `{host}`, `{port}`, `{graph}`
+- Example: `FALKORDB_BROWSER_URL=http://localhost:3000/graph/{graph}`
 
 ## Integration guide (larger product)
 

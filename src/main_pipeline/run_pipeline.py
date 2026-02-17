@@ -8,7 +8,15 @@ from main_pipeline.input_processor import InputProcessor
 
 load_dotenv()
 
-async def process_file(content: str, extractor: DSPyExtractor, falkordb_client=None):
+def _format_graph_url(url_template: str, host: str, port: int, graph: str) -> str:
+    if not url_template:
+        return ""
+    try:
+        return url_template.format(host=host, port=port, graph=graph)
+    except Exception:
+        return url_template
+
+async def process_file(content: str, extractor: DSPyExtractor, falkordb_client=None, graph_url: str = ""):
     """Process a single file through the pipeline."""
     print(f"\n{'='*60}")
     print("Running DSPy extraction...")
@@ -32,6 +40,8 @@ async def process_file(content: str, extractor: DSPyExtractor, falkordb_client=N
             results = falkordb_client.execute_queries(queries)
             success_count = sum(1 for r in results if r.get("success"))
             print(f"✓ {success_count}/{len(queries)} queries executed successfully in FalkorDB")
+            if graph_url:
+                print(f"🔗 View graph: {graph_url}")
         except Exception as e:
             print(f"✗ Error executing FalkorDB queries: {e}")
     
@@ -52,12 +62,17 @@ async def main():
     extractor = DSPyExtractor(OLLAMA_MODEL, OLLAMA_API_BASE, OLLAMA_API_KEY)
     
     falkordb_client = None
+    graph_url = ""
     if USE_FALKORDB:
         FALKORDB_HOST = os.getenv("FALKORDB_HOST", "localhost")
         FALKORDB_PORT = int(os.getenv("FALKORDB_PORT", 6379))
         FALKORDB_GRAPH = os.getenv("FALKORDB_GRAPH", "KnowledgeGraph")
+        FALKORDB_BROWSER_URL = os.getenv("FALKORDB_BROWSER_URL", "")
         falkordb_client = FalkorDBClient(FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
         print("✓ FalkorDB client initialized")
+        graph_url = _format_graph_url(FALKORDB_BROWSER_URL, FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
+        if graph_url:
+            print(f"🔗 Graph browser: {graph_url}")
     
     # Check for new files in input directory
     processor = InputProcessor(input_dir=INPUT_DIR)
@@ -81,7 +96,7 @@ async def main():
         
         content = processor.read_file_content(filepath)
         if content:
-            await process_file(content, extractor, falkordb_client)
+            await process_file(content, extractor, falkordb_client, graph_url)
             processor.mark_as_processed(filepath)
             print(f"✓ Marked {filepath.name} as processed")
         else:
