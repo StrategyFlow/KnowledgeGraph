@@ -12,3 +12,8 @@ wheels/
 # Environment variables
 .env
 .env.*
+
+# Local runtime artifacts
+input/
+output/
+*.processed

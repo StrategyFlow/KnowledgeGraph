@@ -1,7 +1,7 @@
 [project]
 name = "london_project"
 version = "0.1.0"
-description = "A template project using Python, uv, Docker and GitHub Actions"
+description = "Knowledge graph extraction pipeline with DSPy, Redis pub/sub, and optional FalkorDB loading"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -15,6 +15,10 @@ dependencies = [
 
 [project.scripts]
 main = "london_project.app:main"
+service = "london_project.app:main"
+pipeline = "london_project.run_pipeline:run"
+publisher = "london_project.publish:run"
+load-graph = "london_project.load_to_falkordb:main"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]

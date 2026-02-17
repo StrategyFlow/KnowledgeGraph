@@ -48,5 +48,8 @@ async def main():
             await listener_task
         await client.close()
 
-if __name__ == "__main__":
+def run():
     asyncio.run(main())
+
+if __name__ == "__main__":
+    run()
