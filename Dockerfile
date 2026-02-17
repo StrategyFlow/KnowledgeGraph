@@ -18,7 +18,7 @@ ENV UV_NO_DEV=1
 ENV UV_NO_SYNC=1
 
 # Install the project's dependencies using the lockfile and settings
-COPY uv.lock pyproject.toml ./
+COPY uv.lock pyproject.toml README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project
 
