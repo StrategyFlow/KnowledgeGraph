@@ -4,8 +4,8 @@
 import json
 import os
 from pathlib import Path
-from main_pipeline.dspy_extractor import DSPyExtractor
-from main_pipeline.falkordb_client import FalkorDBClient
+from main_pipline.dspy_extractor import DSPyExtractor
+from main_pipline.falkordb_client import FalkorDBClient
 
 
 def load_json_to_falkordb(json_file: str, falkordb_host: str = "localhost", falkordb_port: int = 6379):

@@ -1,5 +1,5 @@
 [project]
-name = "london_project"
+name = "main_pipeline"
 version = "0.1.0"
 description = "Knowledge graph extraction pipeline with DSPy, Redis pub/sub, and optional FalkorDB loading"
 readme = "README.md"
@@ -14,11 +14,11 @@ dependencies = [
 ]
 
 [project.scripts]
-main = "london_project.app:main"
-service = "london_project.app:main"
-pipeline = "london_project.run_pipeline:run"
-publisher = "london_project.publish:run"
-load-graph = "london_project.load_to_falkordb:main"
+main = "main_pipeline.app:main"
+service = "main_pipeline.app:main"
+pipeline = "main_pipeline.run_pipeline:run"
+publisher = "main_pipeline.publish:run"
+load-graph = "main_pipeline.load_to_falkordb:main"
 
 [build-system]
 requires = ["uv_build>=0.9.28,<0.10.0"]

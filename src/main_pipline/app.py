@@ -1,10 +1,10 @@
 import os
 import asyncio
 from dotenv import load_dotenv
-from main_pipeline.dspy_extractor import DSPyExtractor
-from main_pipeline.redis_client import RedisClient
-from main_pipeline.falkordb_client import FalkorDBClient
-from main_pipeline.input_processor import InputProcessor
+from main_pipline.dspy_extractor import DSPyExtractor
+from main_pipline.redis_client import RedisClient
+from main_pipline.falkordb_client import FalkorDBClient
+from main_pipline.input_processor import InputProcessor
 
 load_dotenv()
 

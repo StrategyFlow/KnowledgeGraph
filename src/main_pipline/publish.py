@@ -3,7 +3,7 @@ import asyncio
 import contextlib
 import os
 
-from main_pipeline.redis_client import RedisClient
+from main_pipline.redis_client import RedisClient
 
 async def listen_for_messages(client: RedisClient, channel: str, stop_event: asyncio.Event):
     async def handle_message(message: str):

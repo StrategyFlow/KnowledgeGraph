@@ -24,7 +24,7 @@ All notable changes to this project are documented in this file.
 - Added synchronous wrappers for async entrypoints so command aliases run reliably.
 
 ### Removed
-- Empty legacy artifact file `src/london_project/infoOutput.json`.
+- Empty legacy artifact file `src/main_pipeline/infoOutput.json`.
 - Redundant empty package subfolders and cached artifacts from tracked source layout.
 
 ### Validation

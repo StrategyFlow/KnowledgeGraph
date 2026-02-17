@@ -89,11 +89,11 @@ Use one of these integration patterns:
 
 ## Files that matter
 
-- `src/london_project/run_pipeline.py` — one-shot processing entrypoint
-- `src/london_project/app.py` — Redis service entrypoint
-- `src/london_project/dspy_extractor.py` — extraction + normalization logic
-- `src/london_project/input_processor.py` — file watching/change detection
-- `src/london_project/falkordb_client.py` — graph write/query wrapper
+- `src/main_pipeline/run_pipeline.py` — one-shot processing entrypoint
+- `src/main_pipeline/app.py` — Redis service entrypoint
+- `src/main_pipeline/dspy_extractor.py` — extraction + normalization logic
+- `src/main_pipeline/input_processor.py` — file watching/change detection
+- `src/main_pipeline/falkordb_client.py` — graph write/query wrapper
 
 ## Troubleshooting
 
