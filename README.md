@@ -101,3 +101,7 @@ Use one of these integration patterns:
 - Model errors: validate `OLLAMA_API_BASE` and `OLLAMA_MODEL`.
 - Redis connection errors: check `REDIS_HOST`/`REDIS_PORT`.
 - FalkorDB errors: check host/port/graph and disable with `USE_FALKORDB=false` if not needed.
+
+## Release notes
+
+See `CHANGELOG.md` for release history and implementation notes.
