@@ -71,7 +71,7 @@ OLLAMA_MODEL=gemma3:latest
 # FalkorDB
 USE_FALKORDB=true
 AUTO_LOAD_FALKORDB=true
-FALKORDB_HOST=localhost
+FALKORDB_HOST=ares.westpoint.edu
 FALKORDB_PORT=6379
 FALKORDB_GRAPH=KnowledgeGraph
 
