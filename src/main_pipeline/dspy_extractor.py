@@ -72,92 +72,127 @@ Return ONLY valid JSON with no other text:"""
         
         print(f"\nGenerating Cypher queries from extracted data...")
         
-        # Create Actor Type nodes
-        for actor_type in extracted_data.get("actor_types", []):
-            if actor_type:
-                queries.append(f"MERGE (:ActorType {{name: '{self._escape(actor_type)}'}})")
-        
-        # Create Role Type nodes
-        for role_type in extracted_data.get("role_types", []):
-            if role_type:
-                queries.append(f"MERGE (:RoleType {{name: '{self._escape(role_type)}'}})")
-        
-        # Create Relation Type nodes
-        for relation_type in extracted_data.get("relation_types", []):
-            if relation_type:
-                queries.append(f"MERGE (:RelationType {{name: '{self._escape(relation_type)}'}})")
-        
-        # Create Actor nodes with their types
+        # Build validated actor map (require both name and actor_type).
+        actors_by_name = {}
         for actor in extracted_data.get("actors", []):
-            actor_name = self._escape(actor.get("name", ""))
-            actor_type = self._escape(actor.get("actor_type", ""))
-            
-            if actor_name:
-                if actor_type:
-                    queries.append(
-                        f"MERGE (a:Actor {{name: '{actor_name}'}}) "
-                        f"MERGE (at:ActorType {{name: '{actor_type}'}}) "
-                        f"MERGE (a)-[:HAS_TYPE]->(at)"
-                    )
-                else:
-                    queries.append(f"MERGE (:Actor {{name: '{actor_name}'}})")
-        
-        # Create Relations with roles
-        relation_count = 0
+            raw_name = self._clean_text(actor.get("name", ""))
+            raw_type = self._clean_text(actor.get("actor_type", ""))
+            if raw_name and raw_type:
+                actors_by_name[raw_name] = raw_type
+
+        # Keep only fully-specified relations to avoid blank graph fields.
+        valid_relations = []
         for relation in extracted_data.get("relations", []):
-            actor_a = self._escape(relation.get("actor_a", ""))
-            actor_b = self._escape(relation.get("actor_b", ""))
-            relation_type = self._escape(relation.get("relation_type", ""))
-            role_a = self._escape(relation.get("role_a", ""))
-            role_b = self._escape(relation.get("role_b", ""))
-            biography = self._escape(relation.get("relation_biography", ""))
-            
-            if not actor_a or not actor_b:
-                print(f"  ⚠ Skipping relation with missing actors: {actor_a} -> {actor_b}")
+            actor_a = self._clean_text(relation.get("actor_a", ""))
+            actor_b = self._clean_text(relation.get("actor_b", ""))
+            relation_type = self._clean_text(relation.get("relation_type", ""))
+
+            if not actor_a or not actor_b or not relation_type:
+                print(
+                    f"  ⚠ Skipping incomplete relation: actor_a='{actor_a}', "
+                    f"actor_b='{actor_b}', relation_type='{relation_type}'"
+                )
                 continue
-            
+
+            if actor_a not in actors_by_name or actor_b not in actors_by_name:
+                print(
+                    f"  ⚠ Skipping relation with untyped actor(s): "
+                    f"{actor_a} -> {actor_b}"
+                )
+                continue
+
+            valid_relations.append({
+                "actor_a": actor_a,
+                "actor_b": actor_b,
+                "relation_type": relation_type,
+                "role_a": self._clean_text(relation.get("role_a", "")),
+                "role_b": self._clean_text(relation.get("role_b", "")),
+                "relation_biography": self._clean_text(relation.get("relation_biography", "")),
+            })
+
+        # Only create actor nodes for actors that appear in valid relations.
+        participating_actors = set()
+        for relation in valid_relations:
+            participating_actors.add(relation["actor_a"])
+            participating_actors.add(relation["actor_b"])
+
+        actor_types = {actors_by_name[name] for name in participating_actors}
+        role_types = {
+            relation[field]
+            for relation in valid_relations
+            for field in ("role_a", "role_b")
+            if relation[field]
+        }
+        relation_types = {relation["relation_type"] for relation in valid_relations}
+
+        for actor_type in sorted(actor_types):
+            queries.append(f"MERGE (:ActorType {{name: '{self._escape(actor_type)}'}})")
+
+        for role_type in sorted(role_types):
+            queries.append(f"MERGE (:RoleType {{name: '{self._escape(role_type)}'}})")
+
+        for relation_type in sorted(relation_types):
+            queries.append(f"MERGE (:RelationType {{name: '{self._escape(relation_type)}'}})")
+
+        for actor_name in sorted(participating_actors):
+            actor_type = actors_by_name[actor_name]
+            queries.append(
+                f"MERGE (a:Actor {{name: '{self._escape(actor_name)}'}}) "
+                f"MERGE (at:ActorType {{name: '{self._escape(actor_type)}'}}) "
+                f"MERGE (a)-[:HAS_TYPE]->(at)"
+            )
+
+        relation_count = 0
+        for relation in valid_relations:
+            actor_a = self._escape(relation["actor_a"])
+            actor_b = self._escape(relation["actor_b"])
+            relation_type = self._escape(relation["relation_type"])
+            role_a = self._escape(relation["role_a"])
+            role_b = self._escape(relation["role_b"])
+            biography = self._escape(relation["relation_biography"])
+
             relation_count += 1
-            
-            # Build the relationship query
+
             query_parts = [
                 f"MATCH (a1:Actor {{name: '{actor_a}'}}), (a2:Actor {{name: '{actor_b}'}})",
+                f"MERGE (rt:RelationType {{name: '{relation_type}'}})",
             ]
-            
-            if relation_type:
-                query_parts.append(f"MERGE (rt:RelationType {{name: '{relation_type}'}})")
-            
-            # Create the main relation with biography
+
             rel_props = []
             if biography:
                 rel_props.append(f"biography: '{biography}'")
-            
+
             rel_props_str = ", ".join(rel_props) if rel_props else ""
             props = f" {{{rel_props_str}}}" if rel_props_str else ""
-            
+
             query_parts.append(f"MERGE (r:Relation{props})")
             query_parts.append(f"MERGE (a1)-[:PARTICIPATES_IN]->(r)")
             query_parts.append(f"MERGE (r)-[:PARTICIPATES_IN]->(a2)")
-            
-            if relation_type:
-                query_parts.append(f"MERGE (r)-[:HAS_TYPE]->(rt)")
-            
-            # Add roles
+            query_parts.append(f"MERGE (r)-[:HAS_TYPE]->(rt)")
+
             if role_a:
                 query_parts.append(
                     f"MERGE (rta:RoleType {{name: '{role_a}'}}) "
                     f"MERGE (a1)-[:PLAYS_ROLE {{in_relation: id(r)}}]->(rta)"
                 )
-            
+
             if role_b:
                 query_parts.append(
                     f"MERGE (rtb:RoleType {{name: '{role_b}'}}) "
                     f"MERGE (a2)-[:PLAYS_ROLE {{in_relation: id(r)}}]->(rtb)"
                 )
-            
+
             queries.append(" ".join(query_parts))
         
         print(f"Generated {len(queries)} total queries ({relation_count} relations)")
         return queries
+
+    def _clean_text(self, value: str) -> str:
+        """Normalize extracted text fields and treat placeholders as empty."""
+        cleaned = str(value).strip().lower()
+        if cleaned in {"", "unknown", "none", "null", "n/a", "na", "unspecified"}:
+            return ""
+        return cleaned
     
     def _empty_response(self) -> dict:
         """Return empty response structure."""

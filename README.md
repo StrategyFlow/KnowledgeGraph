@@ -72,12 +72,16 @@ OLLAMA_MODEL=gemma3:latest
 USE_FALKORDB=true
 AUTO_LOAD_FALKORDB=true
 FALKORDB_HOST=ares.westpoint.edu
-FALKORDB_PORT=6379
+FALKORDB_PORT=
 FALKORDB_GRAPH=KnowledgeGraph
 
 # Input processing
 INPUT_DIR=input
 WATCH_INPUT_FILES=false
+
+# Pipeline ingest event publishing (after FalkorDB writes)
+PUBLISH_REDIS_ON_INGEST=true
+REDIS_PUBLISH_CHANNEL=ie_response
 ```
 
 Notes:
