@@ -27,7 +27,11 @@ async def process_file(
     redis_channel: str = "ie_response",
     source_name: str = "",
 ):
-    """Process a single file through the pipeline."""
+    """Process a single file through the pipeline.
+
+    Returns:
+        bool: True when the file can be marked as processed.
+    """
     print(f"\n{'='*60}")
     print("Running DSPy extraction...")
     print(f"{'='*60}")
@@ -43,6 +47,7 @@ async def process_file(
         print(f"✗ Error saving to files: {e}")
     
     # Load to FalkorDB if enabled
+    mark_processed = True
     if falkordb_client:
         success_count = 0
         query_count = 0
@@ -55,8 +60,17 @@ async def process_file(
             print(f"✓ {success_count}/{len(queries)} queries executed successfully in FalkorDB")
             if graph_url:
                 print(f"🔗 View graph: {graph_url}")
+
+            # Retry file on next run if FalkorDB writes were partial/failed.
+            mark_processed = (query_count == 0) or (success_count == query_count)
+            if not mark_processed:
+                print(
+                    f"⚠ Not marking '{source_name}' as processed because "
+                    f"{query_count - success_count} query(ies) failed."
+                )
         except Exception as e:
             print(f"✗ Error executing FalkorDB queries: {e}")
+            mark_processed = False
 
         # Publish ingestion status to Redis after FalkorDB load attempt.
         if redis_client:
@@ -77,6 +91,7 @@ async def process_file(
     print(f"{'='*60}")
     print("Processing complete!")
     print(f"{'='*60}\n")
+    return mark_processed
 
 async def main():
     # Configuration
@@ -96,8 +111,8 @@ async def main():
     graph_url = ""
     if USE_FALKORDB:
         FALKORDB_HOST = os.getenv("FALKORDB_HOST", "ares.westpoint.edu")
-        FALKORDB_PORT = int(os.getenv("FALKORDB_PORT", 3000))
-        FALKORDB_GRAPH = os.getenv("FALKORDB_GRAPH", "KnowledgeGraphTest")
+        FALKORDB_PORT = int(os.getenv("FALKORDB_PORT", 6379))
+        FALKORDB_GRAPH = os.getenv("FALKORDB_GRAPH", "KnowledgeGraph")
         FALKORDB_BROWSER_URL = os.getenv("FALKORDB_BROWSER_URL", "")
         falkordb_client = FalkorDBClient(FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
         print("✓ FalkorDB client initialized")
@@ -140,7 +155,7 @@ async def main():
         
         content = processor.read_file_content(filepath)
         if content:
-            await process_file(
+            should_mark_processed = await process_file(
                 content,
                 extractor,
                 falkordb_client,
@@ -149,10 +164,15 @@ async def main():
                 REDIS_PUBLISH_CHANNEL,
                 filepath.name,
             )
-            processor.mark_as_processed(filepath)
-            print(f"✓ Marked {filepath.name} as processed")
+            if should_mark_processed:
+                processor.mark_as_processed(filepath)
+                print(f"✓ Marked {filepath.name} as processed")
+            else:
+                print(f"⚠ Leaving {filepath.name} unprocessed for retry on next run")
         else:
             print(f"⚠ Skipped empty file: {filepath.name}")
+            processor.mark_as_processed(filepath)
+            print(f"✓ Marked empty file {filepath.name} as processed")
     
     # Cleanup
     if falkordb_client:

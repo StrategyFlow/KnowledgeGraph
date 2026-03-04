@@ -71,14 +71,28 @@ Return ONLY valid JSON with no other text:"""
         queries = []
         
         print(f"\nGenerating Cypher queries from extracted data...")
+        known_actor_types = {
+            self._clean_text(actor_type)
+            for actor_type in extracted_data.get("actor_types", [])
+            if self._clean_text(actor_type)
+        }
         
-        # Build validated actor map (require both name and actor_type).
+        # Build actor map and infer missing types when possible.
         actors_by_name = {}
         for actor in extracted_data.get("actors", []):
             raw_name = self._clean_text(actor.get("name", ""))
             raw_type = self._clean_text(actor.get("actor_type", ""))
-            if raw_name and raw_type:
+            if not raw_name:
+                continue
+
+            if not raw_type:
+                raw_type = self._infer_actor_type(raw_name, known_actor_types)
+                if raw_type:
+                    print(f"  ℹ Inferred actor type '{raw_type}' for '{raw_name}'")
+
+            if raw_type:
                 actors_by_name[raw_name] = raw_type
+                known_actor_types.add(raw_type)
 
         # Keep only fully-specified relations to avoid blank graph fields.
         valid_relations = []
@@ -93,6 +107,20 @@ Return ONLY valid JSON with no other text:"""
                     f"actor_b='{actor_b}', relation_type='{relation_type}'"
                 )
                 continue
+
+            if actor_a not in actors_by_name:
+                inferred = self._infer_actor_type(actor_a, known_actor_types)
+                if inferred:
+                    actors_by_name[actor_a] = inferred
+                    known_actor_types.add(inferred)
+                    print(f"  ℹ Inferred actor type '{inferred}' for '{actor_a}' from relation")
+
+            if actor_b not in actors_by_name:
+                inferred = self._infer_actor_type(actor_b, known_actor_types)
+                if inferred:
+                    actors_by_name[actor_b] = inferred
+                    known_actor_types.add(inferred)
+                    print(f"  ℹ Inferred actor type '{inferred}' for '{actor_b}' from relation")
 
             if actor_a not in actors_by_name or actor_b not in actors_by_name:
                 print(
@@ -193,6 +221,48 @@ Return ONLY valid JSON with no other text:"""
         if cleaned in {"", "unknown", "none", "null", "n/a", "na", "unspecified"}:
             return ""
         return cleaned
+
+    def _infer_actor_type(self, actor_name: str, known_actor_types: set[str]) -> str:
+        """Infer actor type from actor name, preferring known schema terms when available."""
+        name = self._clean_text(actor_name)
+        if not name:
+            return ""
+
+        normalized = (
+            name.replace("1 st", "1st")
+            .replace("2 nd", "2nd")
+            .replace("3 rd", "3rd")
+            .replace("4 th", "4th")
+            .replace("sqd", "squad")
+            .replace("wpn", "weapon")
+            .replace("eny", "enemy")
+            .replace("obj", "objective")
+        )
+
+        def pick(preferred: str, aliases: list[str]) -> str:
+            for candidate in known_actor_types:
+                if candidate in aliases:
+                    return candidate
+            return preferred
+
+        location_tokens = ["objective", "lz", "lzs", "range", "city", "town", "country", "province", "airfield", "bridge"]
+        unit_tokens = ["squad", "battalion", "brigade", "ibct", "forces", "platoon", "company", "troop", "division", "regiment", "in"]
+        organization_tokens = ["congress", "government", "ministry", "hq", "headquarters", "command"]
+        equipment_tokens = ["gun", "weapon", "artillery", "launcher"]
+
+        if any(token in normalized for token in location_tokens):
+            return pick("location", ["location", "place", "terrain", "objective"])
+        if any(token in normalized for token in unit_tokens):
+            return pick("military_unit", ["military_unit", "unit", "force", "forces", "organization"])
+        if any(token in normalized for token in organization_tokens):
+            return pick("organization", ["organization", "institution", "government"])
+        if any(token in normalized for token in equipment_tokens):
+            return pick("equipment", ["equipment", "weapon", "asset"])
+
+        if any(char.isdigit() for char in normalized):
+            return pick("military_unit", ["military_unit", "unit", "force", "forces", "organization"])
+
+        return ""
     
     def _empty_response(self) -> dict:
         """Return empty response structure."""
