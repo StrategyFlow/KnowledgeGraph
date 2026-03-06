@@ -41,6 +41,14 @@ uv run pipeline
 - Open local pub/sub test client: `uv run publisher`
 - Load extracted JSON into FalkorDB: `uv run load-graph`
 
+## Recent Behavior Updates
+
+- `uv run pipeline` now publishes an ingest event to Redis after each FalkorDB load attempt when `PUBLISH_REDIS_ON_INGEST=true`.
+- Files are now marked as processed only when FalkorDB writes succeed (or there are zero generated queries). Failed graph writes are retried on the next pipeline run.
+- Empty files are marked as processed so they do not repeatedly show up as new work.
+- Extraction-to-graph conversion now enforces non-empty required relation fields (`actor_a`, `actor_b`, `relation_type`).
+- For missing actor types, the pipeline now attempts lightweight inference (including common abbreviations such as `sqd`, `wpn`, `obj`, `eny`) before deciding to skip.
+
 ## Which mode should I use?
 
 | Need | Use | Why |
@@ -71,9 +79,10 @@ OLLAMA_MODEL=gemma3:latest
 # FalkorDB
 USE_FALKORDB=true
 AUTO_LOAD_FALKORDB=true
-FALKORDB_HOST=ares.westpoint.edu
-FALKORDB_PORT=
+FALKORDB_HOST=localhost
+FALKORDB_PORT=6379
 FALKORDB_GRAPH=KnowledgeGraph
+FALKORDB_BROWSER_URL=http://localhost:3000
 
 # Input processing
 INPUT_DIR=input
@@ -89,6 +98,8 @@ Notes:
 - `AUTO_LOAD_FALKORDB` only affects Redis service mode.
 - `USE_FALKORDB=true` makes `uv run pipeline` automatically load generated queries into FalkorDB.
 - The pipeline tracks previously processed files with `input/.processed`.
+- `FALKORDB_PORT` is the graph query port (Redis/Falkor protocol), not the browser UI port.
+- If a file contains content but graph writes fail, it remains eligible for retry on the next run.
 
 Optional link output:
 - Set `FALKORDB_BROWSER_URL` to print a clickable graph link in terminal output after successful loads.
