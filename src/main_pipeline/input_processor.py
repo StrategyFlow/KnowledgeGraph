@@ -13,17 +13,17 @@ class InputProcessor:
         self.input_dir.mkdir(exist_ok=True)
         self.processed_marker_file = processed_marker_file
         self.processed_hashes = self._load_processed_hashes()
-        self._docling_available = self._check_docling()
+        self._pdf_parser_available = self._check_pdf_parser()
     
-    def _check_docling(self) -> bool:
-        """Check if Docling is available for PDF parsing."""
+    def _check_pdf_parser(self) -> bool:
+        """Check if the lightweight PDF parser is available."""
         try:
-            import docling
-            print("✓ Docling is available for PDF parsing")
+            import pypdf
+            print("✓ pypdf is available for PDF parsing")
             return True
         except ImportError:
-            print("⚠ Docling not installed. PDF parsing will be skipped.")
-            print("  Install with: pip install docling")
+            print("⚠ pypdf not installed. PDF parsing will be skipped.")
+            print("  Install with: pip install pypdf")
             return False
     
     def _load_processed_hashes(self) -> dict:
@@ -82,25 +82,23 @@ class InputProcessor:
         return new_files
     
     def _parse_pdf(self, filepath: Path) -> str:
-        """Parse PDF file using Docling and return text content."""
-        if not self._docling_available:
-            print(f"⚠ Docling not available. Skipping PDF: {filepath.name}")
+        """Parse PDF file using pypdf and return text content."""
+        if not self._pdf_parser_available:
+            print(f"⚠ PDF parser not available. Skipping PDF: {filepath.name}")
             return ""
         
         try:
-            from docling.document_converter import DocumentConverter
-            
-            print(f"Parsing PDF with Docling: {filepath.name}")
-            
-            # Create converter with timeout and faster settings
-            converter = DocumentConverter()
-            
-            # Convert PDF to document with timeout
-            print("Converting PDF (this may take a moment)...")
-            result = converter.convert(str(filepath))
-            
-            # Extract text from document as markdown
-            text_content = result.document.export_to_markdown()
+            from pypdf import PdfReader
+
+            print(f"Parsing PDF with pypdf: {filepath.name}")
+            reader = PdfReader(str(filepath))
+            pages = []
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    pages.append(page_text)
+
+            text_content = "\n\n".join(pages)
             
             if not text_content or len(text_content.strip()) == 0:
                 print(f"⚠ PDF parsed but no text extracted from {filepath.name}")

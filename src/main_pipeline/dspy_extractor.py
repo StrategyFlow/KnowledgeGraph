@@ -363,20 +363,30 @@ TEXT:
             "key_tasks": [],
             "timelines": []
         }
+
+    def _sanitize_json_text(self, response_text: str) -> str:
+        """Remove control characters that commonly break JSON parsing."""
+        import re
+
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
+        if not json_match:
+            return ""
+
+        candidate = json_match.group()
+        return re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F]', ' ', candidate)
     
     
     def _parse_comprehensive_response(self, response_text: str) -> dict:
         """Parse comprehensive OPORD extraction response."""
         import json as json_lib
-        import re
         
         try:
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            if not json_match:
+            sanitized = self._sanitize_json_text(response_text)
+            if not sanitized:
                 print("No JSON found in response")
                 return self._empty_response()
             
-            data = json_lib.loads(json_match.group())
+            data = json_lib.loads(sanitized, strict=False)
             
             sections = data.get("sections", [])
             
@@ -461,14 +471,12 @@ TEXT:
     def _parse_lm_response(self, response_text: str) -> dict:
         """Parse LM response as JSON."""
         import json as json_lib
-        import re
         
         # Try to extract JSON from response
         try:
-            # Look for JSON block
-            json_match = re.search(r'\{[\s\S]*\}', response_text)
-            if json_match:
-                data = json_lib.loads(json_match.group())
+            sanitized = self._sanitize_json_text(response_text)
+            if sanitized:
+                data = json_lib.loads(sanitized, strict=False)
                 
                 # Normalize all data to lowercase for consistency
                 title = str(data.get("title", "unknown")).lower().strip()

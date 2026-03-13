@@ -9,8 +9,7 @@ dependencies = [
     "python-dotenv>=1",
     "redis>=7.1.0",
     "falkordb>=1.4.0",
-    "docling>=1.0.0",
-    "pillow>=10.0.0",
+    "pypdf>=5.0.0",
     "fastapi>=0.116.0",
     "uvicorn>=0.35.0",
 ]

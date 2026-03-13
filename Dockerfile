@@ -5,8 +5,8 @@ WORKDIR /app
 # Ensure Python output is sent straight to terminal without buffering
 ENV PYTHONUNBUFFERED=1
 
-# Enable bytecode compilation
-ENV UV_COMPILE_BYTECODE=1
+# Skip bytecode compilation to reduce build time
+ENV UV_COMPILE_BYTECODE=0
 
 # Copy from the cache instead of linking since it's a mounted volume
 ENV UV_LINK_MODE=copy
