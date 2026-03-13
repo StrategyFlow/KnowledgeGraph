@@ -16,22 +16,39 @@ class DSPyExtractor:
         dspy.configure(lm=self.lm)
 
     async def extract_info(self, text: str) -> dict:
-        """Extract structured information from the given text."""
-        print(f"Extracting info from text ({len(text)} chars)...")
+        """Extract comprehensive information from OPORD documents."""
+        print(f"Extracting info from OPORD ({len(text)} chars)...")
         
-        # Use simple LM call instead of DSPy structured output
-        prompt = f"""Extract the following information from this text and return as JSON:
-- title: the name/title of the story
-- actor_types: list of distinct character types (e.g., "human", "animal", "mythical")
-- role_types: list of distinct roles (e.g., "protagonist", "helper", "villain")
-- relation_types: list of types of relationships (e.g., "friendship", "conflict", "family")
-- actors: list of {{name, actor_type}} objects
-- relations: list of {{actor_a, actor_b, relation_type}} objects
+        # OPORD-specific comprehensive extraction prompt
+        prompt = f"""You are extracting from a military OPORD. Return JSON only.
+
+OPORD sections to look for: Task Organization, Situation (Enemy, Friendly), Mission, Execution (Commander's Intent, Concept of Operations, Scheme of Maneuver, Scheme of Fires, Tasks to Subordinate Units, Key Tasks, Coordinating Instructions/Timelines), Service Support, Command and Signal.
+
+Items marked with (U) are valid content to extract.
+
+Return this exact JSON:
+{{
+  "title": "operation name",
+  "commanders_intent": "exact intent/guidance text",
+  "concept_of_operations": "scheme of maneuver and overall COA",
+  "scheme_of_fires": "fires support description",
+  "timelines": ["event: time"],
+  "key_tasks": ["labeled key task"],
+  "sections": [
+    {{"header": "section header", "key_points": ["every key point from this section"]}}
+  ],
+  "actors": [
+    {{"name": "entity name", "type": "unit|location|equipment|objective|organization|enemy_unit|personnel"}}
+  ],
+  "relationships": [
+    {{"actor_a": "name1", "actor_b": "name2", "type": "relationship", "context": "description"}}
+  ]
+}}
+
+Extract EVERYTHING: every friendly unit, every enemy unit, their composition/strength/disposition/COA, all locations and objectives, all equipment, all tasks with purposes, all timelines/DTGs, scheme of fires, attachments/OPCON, constraints, and coordinating instructions.
 
 TEXT:
-{text[:2000]}
-
-Return ONLY valid JSON with no other text:"""
+{text}"""
         
         try:
             response = await self.lm.acall(prompt)
@@ -41,14 +58,12 @@ Return ONLY valid JSON with no other text:"""
             if isinstance(response, str):
                 result = response
             elif isinstance(response, list) and len(response) > 0:
-                # List of responses, take first
                 item = response[0]
                 if isinstance(item, str):
                     result = item
                 elif isinstance(item, dict):
                     result = item.get("content", item.get("text", str(item)))
             elif isinstance(response, dict):
-                # Dict response
                 if "choices" in response and isinstance(response["choices"], list) and len(response["choices"]) > 0:
                     choice = response["choices"][0]
                     if isinstance(choice, dict) and "message" in choice:
@@ -58,8 +73,8 @@ Return ONLY valid JSON with no other text:"""
             else:
                 result = str(response)
             
-            print(f"LM Response: {result[:200]}...")
-            return self._parse_lm_response(result)
+            print(f"LM Response received ({len(result)} chars)")
+            return self._parse_comprehensive_response(result)
         except Exception as e:
             print(f"Error calling LM: {e}")
             import traceback
@@ -71,13 +86,83 @@ Return ONLY valid JSON with no other text:"""
         queries = []
         
         print(f"\nGenerating Cypher queries from extracted data...")
+        
+        # Create document/OPORD node
+        doc_title = self._escape(extracted_data.get("title", "unknown"))
+        queries.append(f"MERGE (doc:Document {{title: '{doc_title}', type: 'OPORD'}})")
+        
+        # Create and link sections with their key_points as content
+        sections = extracted_data.get("sections", [])
+        for section in sections:
+            if isinstance(section, dict):
+                header = self._escape(section.get("header", "unknown"))
+                key_points = section.get("key_points", [])
+                content = self._escape(" | ".join(str(p) for p in key_points if p)[:1000])
+                queries.append(
+                    f"MERGE (s:Section {{title: '{header}'}}) "
+                    f"SET s.content = '{content}' "
+                    f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                    f"MERGE (doc)-[:CONTAINS_SECTION]->(s)"
+                )
+        
+        # Create commanders intent node
+        commanders_intent = extracted_data.get("commanders_intent", "")
+        if commanders_intent:
+            intent_text = self._escape(commanders_intent[:500])
+            queries.append(
+                f"MERGE (ci:CommandersIntent {{content: '{intent_text}'}}) "
+                f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                f"MERGE (doc)-[:HAS_GUIDANCE]->(ci)"
+            )
+        
+        # Create concept of operations node
+        concept_of_ops = extracted_data.get("concept_of_operations", "")
+        if concept_of_ops:
+            coa_text = self._escape(concept_of_ops[:500])
+            queries.append(
+                f"MERGE (coa:ConceptOfOperations {{content: '{coa_text}'}}) "
+                f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                f"MERGE (doc)-[:HAS_COA]->(coa)"
+            )
+        
+        # Create scheme of fires node
+        scheme_of_fires = extracted_data.get("scheme_of_fires", "")
+        if scheme_of_fires:
+            fires_text = self._escape(scheme_of_fires[:500])
+            queries.append(
+                f"MERGE (sof:SchemeOfFires {{content: '{fires_text}'}}) "
+                f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                f"MERGE (doc)-[:HAS_FIRES]->(sof)"
+            )
+        
+        # Create key task nodes
+        for i, task in enumerate(extracted_data.get("key_tasks", [])):
+            if task:
+                task_text = self._escape(str(task)[:300])
+                queries.append(
+                    f"MERGE (kt:KeyTask {{content: '{task_text}'}}) "
+                    f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                    f"MERGE (doc)-[:HAS_KEY_TASK]->(kt)"
+                )
+        
+        # Create timeline nodes
+        for timeline_entry in extracted_data.get("timelines", []):
+            if timeline_entry:
+                tl_text = self._escape(str(timeline_entry)[:300])
+                queries.append(
+                    f"MERGE (tl:Timeline {{event: '{tl_text}'}}) "
+                    f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                    f"MERGE (doc)-[:HAS_TIMELINE]->(tl)"
+                )
+        
+        # Build actor type and relation type nodes
         known_actor_types = {
             self._clean_text(actor_type)
             for actor_type in extracted_data.get("actor_types", [])
             if self._clean_text(actor_type)
         }
         
-        # Build actor map and infer missing types when possible.
+        # Build actor map and infer missing types
         actors_by_name = {}
         for actor in extracted_data.get("actors", []):
             raw_name = self._clean_text(actor.get("name", ""))
@@ -94,7 +179,7 @@ Return ONLY valid JSON with no other text:"""
                 actors_by_name[raw_name] = raw_type
                 known_actor_types.add(raw_type)
 
-        # Keep only fully-specified relations to avoid blank graph fields.
+        # Keep only fully-specified relations
         valid_relations = []
         for relation in extracted_data.get("relations", []):
             actor_a = self._clean_text(relation.get("actor_a", ""))
@@ -102,10 +187,6 @@ Return ONLY valid JSON with no other text:"""
             relation_type = self._clean_text(relation.get("relation_type", ""))
 
             if not actor_a or not actor_b or not relation_type:
-                print(
-                    f"  ⚠ Skipping incomplete relation: actor_a='{actor_a}', "
-                    f"actor_b='{actor_b}', relation_type='{relation_type}'"
-                )
                 continue
 
             if actor_a not in actors_by_name:
@@ -138,13 +219,13 @@ Return ONLY valid JSON with no other text:"""
                 "relation_biography": self._clean_text(relation.get("relation_biography", "")),
             })
 
-        # Only create actor nodes for actors that appear in valid relations.
-        participating_actors = set()
+        # Create nodes for ALL known actors (not just those in relations)
+        all_actor_names = set(actors_by_name.keys())
         for relation in valid_relations:
-            participating_actors.add(relation["actor_a"])
-            participating_actors.add(relation["actor_b"])
+            all_actor_names.add(relation["actor_a"])
+            all_actor_names.add(relation["actor_b"])
 
-        actor_types = {actors_by_name[name] for name in participating_actors}
+        actor_types = {actors_by_name[name] for name in all_actor_names if name in actors_by_name}
         role_types = {
             relation[field]
             for relation in valid_relations
@@ -154,16 +235,16 @@ Return ONLY valid JSON with no other text:"""
         relation_types = {relation["relation_type"] for relation in valid_relations}
 
         for actor_type in sorted(actor_types):
-            queries.append(f"MERGE (:ActorType {{name: '{self._escape(actor_type)}'}})")
+            queries.append(f"MERGE (:ActorType {{name: '{self._escape(actor_type)}'}})") 
 
         for role_type in sorted(role_types):
-            queries.append(f"MERGE (:RoleType {{name: '{self._escape(role_type)}'}})")
+            queries.append(f"MERGE (:RoleType {{name: '{self._escape(role_type)}'}})") 
 
         for relation_type in sorted(relation_types):
-            queries.append(f"MERGE (:RelationType {{name: '{self._escape(relation_type)}'}})")
+            queries.append(f"MERGE (:RelationType {{name: '{self._escape(relation_type)}'}})") 
 
-        for actor_name in sorted(participating_actors):
-            actor_type = actors_by_name[actor_name]
+        for actor_name in sorted(all_actor_names):
+            actor_type = actors_by_name.get(actor_name, "unknown")
             queries.append(
                 f"MERGE (a:Actor {{name: '{self._escape(actor_name)}'}}) "
                 f"MERGE (at:ActorType {{name: '{self._escape(actor_type)}'}}) "
@@ -212,7 +293,7 @@ Return ONLY valid JSON with no other text:"""
 
             queries.append(" ".join(query_parts))
         
-        print(f"Generated {len(queries)} total queries ({relation_count} relations)")
+        print(f"Generated {len(queries)} total queries ({relation_count} relations, {len(sections)} sections)")
         return queries
 
     def _clean_text(self, value: str) -> str:
@@ -272,8 +353,108 @@ Return ONLY valid JSON with no other text:"""
             "role_types": [],
             "relation_types": [],
             "actors": [],
-            "relations": []
+            "relations": [],
+            "sections": [],
+            "commanders_intent": "",
+            "concept_of_operations": "",
+            "scheme_of_fires": "",
+            "key_tasks": [],
+            "timelines": []
         }
+    
+    
+    def _parse_comprehensive_response(self, response_text: str) -> dict:
+        """Parse comprehensive OPORD extraction response."""
+        import json as json_lib
+        import re
+        
+        try:
+            json_match = re.search(r'\{[\s\S]*\}', response_text)
+            if not json_match:
+                print("No JSON found in response")
+                return self._empty_response()
+            
+            data = json_lib.loads(json_match.group())
+            
+            sections = data.get("sections", [])
+            
+            # Build actors list
+            actors = []
+            actor_types = set()
+            seen_names = set()
+            
+            for actor in data.get("actors", []):
+                if isinstance(actor, dict):
+                    name = str(actor.get("name", "")).lower().strip()
+                    atype = str(actor.get("type", "")).lower().strip()
+                    if name and name not in seen_names:
+                        seen_names.add(name)
+                        actors.append({"name": name, "actor_type": atype})
+                        if atype:
+                            actor_types.add(atype)
+            
+            # Extract relationships
+            relations = []
+            relation_types = set()
+            
+            for rel in data.get("relationships", []):
+                if isinstance(rel, dict):
+                    actor_a = str(rel.get("actor_a", "")).lower().strip()
+                    actor_b = str(rel.get("actor_b", "")).lower().strip()
+                    rtype = str(rel.get("type", "")).lower().strip()
+                    context = str(rel.get("context", "")).lower().strip()
+                    
+                    if actor_a and actor_b and rtype:
+                        relations.append({
+                            "actor_a": actor_a,
+                            "actor_b": actor_b,
+                            "relation_type": rtype,
+                            "role_a": "",
+                            "role_b": "",
+                            "relation_biography": context
+                        })
+                        relation_types.add(rtype)
+            
+            commanders_intent = str(data.get("commanders_intent", "")).lower().strip()
+            concept_of_ops = str(data.get("concept_of_operations", "")).lower().strip()
+            scheme_of_fires = str(data.get("scheme_of_fires", "")).lower().strip()
+            key_tasks = [str(t).lower().strip() for t in data.get("key_tasks", []) if t]
+            timelines = [str(t).lower().strip() for t in data.get("timelines", []) if t]
+            
+            result = {
+                "title": str(data.get("title", "unknown")).lower().strip(),
+                "actor_types": [str(t).lower().strip() for t in actor_types if t],
+                "role_types": ["executor", "receiver", "target"],
+                "relation_types": [str(t).lower().strip() for t in relation_types if t],
+                "actors": actors,
+                "relations": relations,
+                "sections": sections,
+                "commanders_intent": commanders_intent,
+                "concept_of_operations": concept_of_ops,
+                "scheme_of_fires": scheme_of_fires,
+                "key_tasks": key_tasks,
+                "timelines": timelines
+            }
+            
+            print(f"✓ Extracted title: {result['title']}")
+            print(f"✓ Sections: {len(sections)}")
+            print(f"✓ Actors: {len(actors)}")
+            print(f"✓ Relations: {len(relations)}")
+            print(f"✓ Key Tasks: {len(key_tasks)}")
+            print(f"✓ Timelines: {len(timelines)}")
+            print(f"✓ Commander's Intent: {'Yes' if commanders_intent else 'No'}")
+            print(f"✓ Scheme of Fires: {'Yes' if scheme_of_fires else 'No'}")
+            
+            return result
+            
+        except json_lib.JSONDecodeError as e:
+            print(f"JSON decode error: {e}")
+        except Exception as e:
+            print(f"Error parsing comprehensive response: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return self._empty_response()
     
     def _parse_lm_response(self, response_text: str) -> dict:
         """Parse LM response as JSON."""
