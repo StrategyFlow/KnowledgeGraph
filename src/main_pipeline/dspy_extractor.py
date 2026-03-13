@@ -248,7 +248,9 @@ TEXT:
             queries.append(
                 f"MERGE (a:Actor {{name: '{self._escape(actor_name)}'}}) "
                 f"MERGE (at:ActorType {{name: '{self._escape(actor_type)}'}}) "
-                f"MERGE (a)-[:HAS_TYPE]->(at)"
+                f"MERGE (a)-[:HAS_TYPE]->(at) "
+                f"MERGE (doc:Document {{title: '{doc_title}'}}) "
+                f"MERGE (doc)-[:MENTIONS]->(a)"
             )
 
         relation_count = 0
