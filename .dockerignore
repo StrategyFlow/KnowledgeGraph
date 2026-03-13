@@ -1,0 +1,27 @@
+# VCS and CI metadata
+.git
+.github
+
+# Local environment and caches
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.cache
+
+# Local runtime/generated data
+.env
+.env.*
+input
+output
+*.processed
+
+# Editor/system files
+.vscode
+.idea
+*.log
+.DS_Store
+Thumbs.db
