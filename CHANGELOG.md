@@ -17,7 +17,11 @@ All notable changes to this project are documented in this file.
 - Mission-focused read endpoints for UI integration:
   - `/health`
   - `/api/opord-summary`
-  - `/api/commanders-guidance`
+  - `/api/situation`
+  - `/api/mission`
+  - `/api/execution`
+  - `/api/sustainment`
+  - `/api/command-and-signal`
   - `/api/enemy`
   - `/api/key-tasks`
   - `/api/timelines`
@@ -36,13 +40,28 @@ All notable changes to this project are documented in this file.
 - Section writes now persist joined section key points into `Section.content` instead of placeholder values.
 - README updated with API workflow, endpoint catalog, OPORD schema notes, and ARES deployment guidance.
 
+### Fixed
+- Phase endpoints now support optional `title` query parameters without generating invalid Cypher (eliminates internal server errors when `title` is omitted):
+  - `/api/situation`
+  - `/api/mission`
+  - `/api/execution`
+  - `/api/sustainment`
+  - `/api/command-and-signal`
+- Documentation drift corrected:
+  - Removed stale `/api/commanders-guidance` references from README/changelog endpoint inventories.
+  - Added public-release safety guidance for `.env`, `input/`, and `output/` handling.
+
 ### Validation
 - `uv sync` succeeds after dependency updates.
 - `uv run pipeline` succeeds with OPORD PDF input and writes expanded extraction output.
 - FalkorDB ingest succeeds for full generated query set in latest OPORD run.
 - API smoke tests succeed for:
   - `/health`
-  - `/api/commanders-guidance`
+  - `/api/situation`
+  - `/api/mission`
+  - `/api/execution`
+  - `/api/sustainment`
+  - `/api/command-and-signal`
   - `/api/enemy`
   - `/api/key-tasks`
   - `/api/opord-summary`

@@ -475,7 +475,7 @@ app = create_app()
 
 
 def run() -> None:
-    api_host = os.getenv("API_HOST", "0.0.0.0")
+    api_host = os.getenv("API_HOST", "127.0.0.1")
     api_port = int(os.getenv("API_PORT", "8000"))
     uvicorn.run("main_pipeline.api:app", host=api_host, port=api_port, reload=False)
 
