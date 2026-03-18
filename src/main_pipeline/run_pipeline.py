@@ -116,6 +116,7 @@ async def main():
         FALKORDB_BROWSER_URL = os.getenv("FALKORDB_BROWSER_URL", "")
         falkordb_client = FalkorDBClient(FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
         print("✓ FalkorDB client initialized")
+        print(f"  → Writing to graph: '{FALKORDB_GRAPH}'")
         graph_url = _format_graph_url(FALKORDB_BROWSER_URL, FALKORDB_HOST, FALKORDB_PORT, FALKORDB_GRAPH)
         if graph_url:
             print(f"🔗 Graph browser: {graph_url}")

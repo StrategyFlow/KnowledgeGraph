@@ -16,40 +16,138 @@ class DSPyExtractor:
         dspy.configure(lm=self.lm)
 
     async def extract_info(self, text: str) -> dict:
-        """Extract comprehensive information from OPORD documents."""
+        """Extract comprehensive information from OPORD documents using 5-phase approach."""
         print(f"Extracting info from OPORD ({len(text)} chars)...")
+        print("Using 5-phase extraction: Situation → Mission → Execution → Sustainment → C2")
         
-        # OPORD-specific comprehensive extraction prompt
-        prompt = f"""You are extracting from a military OPORD. Return JSON only.
+        # Run extraction phases sequentially
+        phase_results = {}
+        phase_results["situation"] = await self._extract_situation(text)
+        phase_results["mission"] = await self._extract_mission(text)
+        phase_results["execution"] = await self._extract_execution(text)
+        phase_results["sustainment"] = await self._extract_sustainment(text)
+        phase_results["c2"] = await self._extract_command_and_signal(text)
+        
+        # Merge phase results with deduplication
+        merged = self._merge_phase_results(phase_results)
+        
+        # Add completeness validation
+        self._validate_completeness(merged)
+        
+        return merged
+    
+    async def _extract_situation(self, text: str) -> dict:
+        """Extract SITUATION section: friendly/enemy strength, disposition, terrain, weather."""
+        print("\n[Phase 1/5] Extracting SITUATION...")
+        prompt = f"""Extract SITUATION section from OPORD. Return JSON only.
 
-OPORD sections to look for: Task Organization, Situation (Enemy, Friendly), Mission, Execution (Commander's Intent, Concept of Operations, Scheme of Maneuver, Scheme of Fires, Tasks to Subordinate Units, Key Tasks, Coordinating Instructions/Timelines), Service Support, Command and Signal.
+SITUATION includes: friendly disposition/strength, enemy disposition/strength/COA, terrain analysis, weather data, and relevant civil considerations.
 
-Items marked with (U) are valid content to extract.
-
-Return this exact JSON:
+Return JSON:
 {{
-  "title": "operation name",
-  "commanders_intent": "exact intent/guidance text",
-  "concept_of_operations": "scheme of maneuver and overall COA",
-  "scheme_of_fires": "fires support description",
-  "timelines": ["event: time"],
-  "key_tasks": ["labeled key task"],
-  "sections": [
-    {{"header": "section header", "key_points": ["every key point from this section"]}}
-  ],
-  "actors": [
-    {{"name": "entity name", "type": "unit|location|equipment|objective|organization|enemy_unit|personnel"}}
-  ],
-  "relationships": [
-    {{"actor_a": "name1", "actor_b": "name2", "type": "relationship", "context": "description"}}
-  ]
+  "phase": "situation",
+  "sections": [{{"header": "Situation", "key_points": ["all points about friendly and enemy forces, terrain, weather"]}}],
+  "sections": [{{"header": "Terrain", "key_points": ["terrain features, key terrain, obstacles, avenues of approach"]}}],
+  "sections": [{{"header": "Weather", "key_points": ["weather data, sunrise/sunset, moonrise/moonset, precipitation"]}}],
+  "actors": [{{"name": "unit/enemy name", "actor_type": "unit|enemy_unit|equipment|location"}}],
+  "relations": [{{"actor_a": "name1", "actor_b": "name2", "relation_type": "supports|subordinates|occupies", "relation_biography": "context"}}]
 }}
-
-Extract EVERYTHING: every friendly unit, every enemy unit, their composition/strength/disposition/COA, all locations and objectives, all equipment, all tasks with purposes, all timelines/DTGs, scheme of fires, attachments/OPCON, constraints, and coordinating instructions.
 
 TEXT:
 {text}"""
-        
+        return await self._call_lm_and_parse(prompt, "situation")
+    
+    async def _extract_mission(self, text: str) -> dict:
+        """Extract MISSION section: task organization, commander's intent, end state."""
+        print("[Phase 2/5] Extracting MISSION...")
+        prompt = f"""Extract MISSION section from OPORD. Return JSON only.
+
+Also extract the OPORD TITLE/OPERATION NAME from anywhere in the document.
+
+MISSION includes: task organization, commander's intent, key guidance, and end state (friendly/enemy/terrain/civil).
+
+Return JSON:
+{{
+  "phase": "mission",
+  "title": "operation name if found",
+  "commanders_intent": "complete intent statement",
+  "sections": [{{"header": "Mission", "key_points": ["mission task(s), unit composition, chain of command"]}}],
+  "sections": [{{"header": "Task Organization", "key_points": ["all OPCON changes, attachments, detachments"]}}],
+  "actors": [{{"name": "unit name", "actor_type": "unit|equipment|location"}}],
+  "relations": [{{"actor_a": "parent_unit", "actor_b": "subordinate_unit", "relation_type": "subordinate", "relation_biography": "OPCON relationship"}}]
+}}
+
+TEXT:
+{text}"""
+        return await self._call_lm_and_parse(prompt, "mission")
+    
+    async def _extract_execution(self, text: str) -> dict:
+        """Extract EXECUTION section: COA, scheme of maneuver, fires, tasks, coordinating instructions."""
+        print("[Phase 3/5] Extracting EXECUTION...")
+        prompt = f"""Extract EXECUTION section from OPORD. Return JSON only.
+
+EXECUTION includes: concept of operations (scheme of maneuver), scheme of fires, specific tasks to subordinate units, and coordinating instructions.
+
+Return JSON:
+{{
+  "phase": "execution",
+  "concept_of_operations": "complete scheme of maneuver and overall approach",
+  "scheme_of_fires": "artillery/fire support plan and priorities",
+  "key_tasks": ["task: do X to achieve Y", "task: do A to achieve B"],
+  "timelines": ["DTG: 29 0600 AUG 24 - event", "DTG: 30 2000 AUG 24 - event"],
+  "sections": [{{"header": "Concept of Operations", "key_points": ["commander's approach, main effort, supporting efforts"]}}],
+  "actors": [{{"name": "unit name", "actor_type": "unit|equipment|objective"}}],
+  "relations": [{{"actor_a": "unit1", "actor_b": "unit2", "relation_type": "supports|executes_task", "relation_biography": "task relationship"}}]
+}}
+
+TEXT:
+{text}"""
+        return await self._call_lm_and_parse(prompt, "execution")
+    
+    async def _extract_sustainment(self, text: str) -> dict:
+        """Extract SUSTAINMENT section: logistics, personnel, supply, and support."""
+        print("[Phase 4/5] Extracting SUSTAINMENT...")
+        prompt = f"""Extract SERVICE SUPPORT / SUSTAINMENT section from OPORD. Return JSON only.
+
+SUSTAINMENT includes: supply operations, transport, maintenance, medical support, casualty procedures, and logistics.
+
+Return JSON:
+{{
+  "phase": "sustainment",
+  "sections": [{{"header": "Sustainment", "key_points": ["supply points, logistics operations, medical support, resupply procedures"]}}],
+  "actors": [{{"name": "supply_point|medical_unit|logistics_element", "actor_type": "location|unit|equipment"}}],
+  "relations": [{{"actor_a": "unit", "actor_b": "supply_point", "relation_type": "supplied_by|supported_by", "relation_biography": "sustainment relationship"}}]
+}}
+
+If sustainment section is not found, return empty arrays.
+
+TEXT:
+{text}"""
+        return await self._call_lm_and_parse(prompt, "sustainment")
+    
+    async def _extract_command_and_signal(self, text: str) -> dict:
+        """Extract COMMAND AND SIGNAL section: C2, comms, succession of command."""
+        print("[Phase 5/5] Extracting COMMAND AND SIGNAL...")
+        prompt = f"""Extract COMMAND AND SIGNAL section from OPORD. Return JSON only.
+
+COMMAND AND SIGNAL includes: chain of command, commander location, communications plan, succession of command, and signal security.
+
+Return JSON:
+{{
+  "phase": "c2",
+  "sections": [{{"header": "Command and Signal", "key_points": ["chain of command, commander location, communications plan, succession of command, signal instructions"]}}],
+  "actors": [{{"name": "commander|unit|location", "actor_type": "personnel|unit|location"}}],
+  "relations": [{{"actor_a": "superior_commander", "actor_b": "subordinate_commander", "relation_type": "commands|reports_to", "relation_biography": "chain of command"}}]
+}}
+
+If command and signal section is not found, return empty arrays.
+
+TEXT:
+{text}"""
+        return await self._call_lm_and_parse(prompt, "c2")
+    
+    async def _call_lm_and_parse(self, prompt: str, phase_name: str) -> dict:
+        """Call LM and parse response with error handling."""
         try:
             response = await self.lm.acall(prompt)
             
@@ -73,13 +171,192 @@ TEXT:
             else:
                 result = str(response)
             
-            print(f"LM Response received ({len(result)} chars)")
-            return self._parse_comprehensive_response(result)
+            parsed = self._parse_phase_response(result, phase_name)
+            print(f"  ✓ Phase {phase_name} parsed: {len(parsed.get('actors', []))} actors, {len(parsed.get('relations', []))} relations")
+            return parsed
         except Exception as e:
-            print(f"Error calling LM: {e}")
-            import traceback
-            traceback.print_exc()
-            return self._empty_response()
+            print(f"Error in phase {phase_name}: {e}")
+            return self._empty_phase_response(phase_name)
+    
+    def _parse_phase_response(self, response_text: str, phase_name: str) -> dict:
+        """Parse single phase response."""
+        import json as json_lib
+        
+        try:
+            sanitized = self._sanitize_json_text(response_text)
+            if not sanitized:
+                print(f"  ⚠ No JSON found in {phase_name} response")
+                return self._empty_phase_response(phase_name)
+            
+            data = json_lib.loads(sanitized, strict=False)
+            
+            return {
+                "phase": phase_name,
+                "title": str(data.get("title", "unknown")).lower().strip() or "unknown",
+                "sections": data.get("sections", []),
+                "actors": self._normalize_actors(data.get("actors", [])),
+                "relations": self._normalize_relations(data.get("relations", [])),
+                "commanders_intent": str(data.get("commanders_intent", "")).lower().strip() or "",
+                "concept_of_operations": str(data.get("concept_of_operations", "")).lower().strip() or "",
+                "scheme_of_fires": str(data.get("scheme_of_fires", "")).lower().strip() or "",
+                "key_tasks": [str(t).lower().strip() for t in data.get("key_tasks", []) if t],
+                "timelines": [str(t).lower().strip() for t in data.get("timelines", []) if t]
+            }
+        except Exception as e:
+            print(f"  ⚠ Error parsing {phase_name}: {e}")
+            return self._empty_phase_response(phase_name)
+    
+    def _empty_phase_response(self, phase_name: str) -> dict:
+        """Return empty response for a single phase."""
+        return {
+            "phase": phase_name,
+            "title": "unknown",
+            "sections": [],
+            "actors": [],
+            "relations": [],
+            "commanders_intent": "",
+            "concept_of_operations": "",
+            "scheme_of_fires": "",
+            "key_tasks": [],
+            "timelines": []
+        }
+    
+    def _merge_phase_results(self, phase_results: dict) -> dict:
+        """Merge results from all 5 phases with deduplication."""
+        print("\nMerging phase results with deduplication...")
+        
+        merged = {
+            "title": "unknown",
+            "sections": [],
+            "actors": [],
+            "relations": [],
+            "commanders_intent": "",
+            "concept_of_operations": "",
+            "scheme_of_fires": "",
+            "key_tasks": [],
+            "timelines": [],
+            "actor_types": [],
+            "role_types": ["executor", "receiver", "target"],
+            "relation_types": []
+        }
+        
+        # Extract title from first phase that has it
+        for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+            phase = phase_results.get(phase_name, {})
+            title = phase.get("title", "unknown").lower().strip()
+            if title and title != "unknown":
+                merged["title"] = title
+                break
+        
+        # Merge sections (preserve order by phase)
+        seen_section_headers = set()
+        for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+            phase = phase_results.get(phase_name, {})
+            for section in phase.get("sections", []):
+                header = section.get("header", "").lower().strip()
+                if header and header not in seen_section_headers:
+                    seen_section_headers.add(header)
+                    merged["sections"].append(section)
+        
+        # Merge actors with deduplication
+        seen_actors = {}
+        for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+            phase = phase_results.get(phase_name, {})
+            for actor in phase.get("actors", []):
+                actor_name = actor.get("name", "").lower().strip()
+                if actor_name and actor_name not in seen_actors:
+                    seen_actors[actor_name] = actor
+                    merged["actors"].append(actor)
+                elif actor_name and actor_name in seen_actors:
+                    # If we see the same actor again with a type, update if empty
+                    existing = seen_actors[actor_name]
+                    if not existing.get("actor_type") and actor.get("actor_type"):
+                        existing["actor_type"] = actor.get("actor_type")
+        
+        # Merge relations with deduplication
+        seen_relations = set()
+        for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+            phase = phase_results.get(phase_name, {})
+            for relation in phase.get("relations", []):
+                rel_key = (
+                    relation.get("actor_a", "").lower().strip(),
+                    relation.get("actor_b", "").lower().strip(),
+                    relation.get("relation_type", "").lower().strip()
+                )
+                if rel_key not in seen_relations and all(rel_key):
+                    seen_relations.add(rel_key)
+                    merged["relations"].append(relation)
+        
+        # Merge text fields (take first non-empty)
+        for field in ["commanders_intent", "concept_of_operations", "scheme_of_fires"]:
+            for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+                phase = phase_results.get(phase_name, {})
+                if not merged[field] and phase.get(field):
+                    merged[field] = phase.get(field)
+        
+        # Merge lists with deduplication
+        seen_tasks = set()
+        for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+            phase = phase_results.get(phase_name, {})
+            for task in phase.get("key_tasks", []):
+                task_clean = task.lower().strip()
+                if task_clean and task_clean not in seen_tasks:
+                    seen_tasks.add(task_clean)
+                    merged["key_tasks"].append(task)
+        
+        seen_timelines = set()
+        for phase_name in ["situation", "mission", "execution", "sustainment", "c2"]:
+            phase = phase_results.get(phase_name, {})
+            for timeline in phase.get("timelines", []):
+                timeline_clean = timeline.lower().strip()
+                if timeline_clean and timeline_clean not in seen_timelines:
+                    seen_timelines.add(timeline_clean)
+                    merged["timelines"].append(timeline)
+        
+        # Extract and deduplicate actor types and relation types
+        actor_types = set()
+        for actor in merged["actors"]:
+            atype = actor.get("actor_type", "").lower().strip()
+            if atype:
+                actor_types.add(atype)
+        merged["actor_types"] = sorted(list(actor_types))
+        
+        relation_types = set()
+        for relation in merged["relations"]:
+            rtype = relation.get("relation_type", "").lower().strip()
+            if rtype:
+                relation_types.add(rtype)
+        merged["relation_types"] = sorted(list(relation_types))
+        
+        print(f"  ✓ Merged: {len(merged['sections'])} sections, {len(merged['actors'])} unique actors, {len(merged['relations'])} unique relations")
+        print(f"  ✓ Key tasks: {len(merged['key_tasks'])}, Timelines: {len(merged['timelines'])}")
+        
+        return merged
+    
+    def _validate_completeness(self, extracted: dict) -> None:
+        """Validate extraction completeness and warn if missing major sections."""
+        print("\nValidation Summary:")
+        
+        section_headers = {s.get("header", "").lower() for s in extracted.get("sections", [])}
+        
+        expected_sections = {"situation", "mission", "execution", "sustainment", "command and signal"}
+        found_sections = section_headers & expected_sections
+        missing_sections = expected_sections - found_sections
+        
+        if missing_sections:
+            print(f"  ⚠ Missing sections: {', '.join(sorted(missing_sections))}")
+        else:
+            print(f"  ✓ All major OPORD sections found")
+        
+        print(f"  ✓ Extracted title: {extracted['title']}")
+        print(f"  ✓ Sections: {len(extracted['sections'])}")
+        print(f"  ✓ Actors: {len(extracted['actors'])}")
+        print(f"  ✓ Relations: {len(extracted['relations'])}")
+        print(f"  ✓ Key Tasks: {len(extracted['key_tasks'])}")
+        print(f"  ✓ Timelines: {len(extracted['timelines'])}")
+        print(f"  ✓ Commander's Intent: {'Yes' if extracted['commanders_intent'] else 'No'}")
+        print(f"  ✓ Concept of Operations: {'Yes' if extracted['concept_of_operations'] else 'No'}")
+        print(f"  ✓ Scheme of Fires: {'Yes' if extracted['scheme_of_fires'] else 'No'}")
     
     def to_falkordb_queries(self, extracted_data: dict) -> list[str]:
         """Convert extracted data to FalkorDB Cypher queries."""
